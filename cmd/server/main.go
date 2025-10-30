@@ -2,36 +2,70 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"os/signal"
+	"log"
 
+	"github.com/JA50N14/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/JA50N14/learn-pub-sub-starter/internal/pubsub"
-	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/JA50N14/learn-pub-sub-starter/internal/routing"
 
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 func main() {
-	const connStr = "amqp://guest:guest@localhost:5672/"
-	conn, err := amqp.Dial(connStr)
+	const rabbitConnString = "amqp://guest:guest@localhost:5672/"
+	conn, err := amqp.Dial(rabbitConnString)
 	if err != nil {
-		fmt.Println("error creating ampq connection: %v", err)
-		os.Exit(1)
+		log.Fatalf("could not connect to RabbitMQ: %v", err)
 	}
-	conn.Close()
-	fmt.Println("Starting Peril server...")
-	
-	ch, err := conn.Channel()
+	defer conn.Close()
+
+	publishCh, err := conn.Channel()
 	if err != nil {
-		fmt.Println("error opening channel on amqp connection: %v", err)
-		os.Exit(1)
+		log.Fatalf("could not create channel: %v", err)
 	}
-	err = pubsub.PublishJSON(ch, )
 
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, os.Interrupt)
-	<-signalChan
-	fmt.Println("Program is shutting down and connections closed")
+	_, queue, err := pubsub.DeclareAndBind(
+		conn,
+		routing.ExchangePerilTopic,
+		routing.GameLogSlug,
+		routing.GameLogSlug+".*",
+		pubsub.SimpleQueueDurable,
+	)
+	if err != nil {
+		log.Fatalf("could not subscribe game_logs: %v", err)
+	}
+	fmt.Printf("Queue %v declared and bound\n", queue.Name)
 
+	gamelogic.PrintServerHelp()
 
+	for {
+		words := gamelogic.GetInput()
+		if len(words) == 0 {
+			continue
+		}
+		switch words[0] {
+		case "pause":
+			fmt.Println("Publishing pause game state")
+			err = pubsub.PublishJSON(publishCh, string(routing.ExchangePerilDirect), string(routing.PauseKey), routing.PlayingState{IsPaused: true})
+			if err != nil {
+				log.Printf("could not publish at this time: %v", err)
+			}
+		case "resume":
+			fmt.Println("Publishing resume game state")
+			err = pubsub.PublishJSON(publishCh, string(routing.ExchangePerilDirect), string(routing.PauseKey), routing.PlayingState{IsPaused: false})
+			if err != nil {
+				log.Printf("could not publish at this time: %v", err)
+			}
+		case "quit":
+			log.Println("goodbye")
+			return
+		default:
+			fmt.Println("Unknown command")
+		}
+	}
 
+	// signalChan := make(chan os.Signal, 1)
+	// signal.Notify(signalChan, os.Interrupt)
+	// <-signalChan
+	// fmt.Println("Program is shutting down and connections closed")
 }
