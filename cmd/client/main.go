@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/JA50N14/learn-pub-sub-starter/internal/gamelogic"
 	"github.com/JA50N14/learn-pub-sub-starter/internal/pubsub"
@@ -32,12 +33,38 @@ func main() {
 
 	gs := gamelogic.NewGameState(username)
 
-	err = pubsub.SubscribeJSON(conn, string(routing.ExchangePerilTopic), "army_moves."+gs.GetUsername(), "army_moves.*", pubsub.SimpleQueueTransient, handlerMoves(gs))
+	err = pubsub.SubscribeJSON(
+		conn,
+		string(routing.ExchangePerilTopic),
+		string(routing.ArmyMovesPrefix)+"."+gs.GetUsername(),
+		string(routing.ArmyMovesPrefix)+".*",
+		pubsub.SimpleQueueTransient,
+		handlerMoves(gs, publishCh),
+	)
 	if err != nil {
 		log.Fatalf("could not subscribe to army_moves: %v", err)
 	}
 
-	err = pubsub.SubscribeJSON(conn, routing.ExchangePerilDirect, "pause."+gs.GetUsername(), routing.PauseKey, pubsub.SimpleQueueTransient, handlerPause(gs))
+	err = pubsub.SubscribeJSON(
+		conn,
+		string(routing.ExchangePerilTopic),
+		string(routing.WarRecognitionsPrefix),
+		string(routing.WarRecognitionsPrefix)+".*",
+		pubsub.SimpleQueueDurable,
+		handlerWar(gs, publishCh),
+	)
+	if err != nil {
+		log.Fatalf("could not subscribe to war declarations: %v", err)
+	}
+
+	err = pubsub.SubscribeJSON(
+		conn,
+		routing.ExchangePerilDirect,
+		routing.PauseKey+"."+gs.GetUsername(),
+		routing.PauseKey,
+		pubsub.SimpleQueueTransient,
+		handlerPause(gs),
+	)
 	if err != nil {
 		log.Fatalf("could not subscribe to pause: %v", err)
 	}
@@ -56,7 +83,7 @@ func main() {
 				continue
 			}
 			//publish the move
-			err = pubsub.PublishJSON(publishCh, routing.ExchangePerilTopic, "army_moves."+gs.GetUsername(), mv)
+			err = pubsub.PublishJSON(publishCh, routing.ExchangePerilTopic, string(routing.ArmyMovesPrefix)+"."+mv.Player.Username, mv)
 			if err != nil {
 				fmt.Printf("error: %s\n", err)
 				continue
@@ -82,12 +109,19 @@ func main() {
 			fmt.Println("Unknown command")
 		}
 	}
+}
 
-	//wait for ctrl+c
-	// signalCh := make(chan os.Signal, 1)
-	// signal.Notify(signalCh, os.Interrupt)
-	// <-signalCh
-	// fmt.Println("RabbitMQ connection closed")
+func publishGameLog(publishCh *amqp.Channel, username, msg string) error {
+	return pubsub.PublishGob(
+		publishCh,
+		string(routing.ExchangePerilTopic),
+		routing.GameLogSlug+"."+username,
+		routing.GameLog{
+			Username:    username,
+			CurrentTime: time.Now(),
+			Message:     msg,
+		},
+	)
 }
 
 //Pause Flow:
@@ -128,11 +162,6 @@ func main() {
 
 // Paused behavior: your handler should update state via GameState.HandlePause. Then command handlers (move/spawn/etc.) should consult that state and reject actions. Correct.
 
-// If you want, I can quickly review your SubscribeJSON and handlerPause to ensure acks, errors, and types are handled cleanly.
-
-// Thumbs up
-// Thumbs down
-// Boots
 // So each client has a game state, which is manipulated by the server when it sends a pause message?
 
 // Boots
