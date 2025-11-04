@@ -8,7 +8,7 @@ import (
 	"github.com/JA50N14/learn-pub-sub-starter/internal/gamelogic"
 )
 
-func handlerLog() func(routing.GameLog) pubsub.Acktype {
+func handlerLog() func(gl routing.GameLog) pubsub.Acktype {
 	return func(gl routing.GameLog) pubsub.Acktype {
 		defer fmt.Printf("> ")
 		err := gamelogic.WriteLog(gl)

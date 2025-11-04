@@ -1,9 +1,9 @@
 package pubsub
 
 import (
-	"encoding/json"
-	"encoding/gob"
 	"bytes"
+	"encoding/gob"
+	"encoding/json"
 	"fmt"
 	"log"
 
@@ -51,7 +51,7 @@ func SubscribeGob[T any](conn *amqp.Connection, exchange, queueName, key string,
 		err := decoder.Decode(&target)
 		return target, err
 	}
-	
+
 	return subscribe[T](
 		conn,
 		exchange,
@@ -63,15 +63,14 @@ func SubscribeGob[T any](conn *amqp.Connection, exchange, queueName, key string,
 	)
 }
 
-
 func subscribe[T any](
-	conn *amqp.Connection, 
-	exchange, 
-	queueName, 
-	key string, 
-	simpleQueueType SimpleQueueType, 
+	conn *amqp.Connection,
+	exchange,
+	queueName,
+	key string,
+	simpleQueueType SimpleQueueType,
 	handler func(T) Acktype,
-	unmarshaller func([]byte)(T, error),
+	unmarshaller func([]byte) (T, error),
 ) error {
 	ch, queue, err := DeclareAndBind(
 		conn,
@@ -83,6 +82,11 @@ func subscribe[T any](
 	if err != nil {
 		return fmt.Errorf("could not declare and bind queue: %v", err)
 	}
+	err = ch.Qos(10, 0, false)
+	if err != nil {
+		return fmt.Errorf("could not set Qos: %v", err)
+	}
+
 	msgs, err := ch.Consume(queue.Name, "", false, false, false, false, nil)
 	if err != nil {
 		return fmt.Errorf("could not consume messages: %v", err)
